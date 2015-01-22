@@ -333,6 +333,8 @@ static final public Var RET_LOCAL_NUM = Var.create().setDynamic();
 static final public Var COMPILE_STUB_SYM = Var.create(null).setDynamic();
 static final public Var COMPILE_STUB_CLASS = Var.create(null).setDynamic();
 
+//[stub-class, method]
+static final public Var ALLOW_PROTECTED_ACCESS = Var.create(null).setDynamic();
 
 //PathNode chain
 static final public Var CLEAR_PATH = Var.create(null).setDynamic();
@@ -352,7 +354,7 @@ static final public Var CLEAR_SITES = Var.create(null).setDynamic();
 
 private class Recur {};
 static final public Class RECUR_CLASS = Recur.class;
-    
+
 interface Expr{
 	Object eval() ;
 
@@ -934,7 +936,7 @@ static public abstract class HostExpr implements Expr, MaybePrimitiveExpr{
 					else if(paramType == byte.class)
 						m = Method.getMethod("byte uncheckedByteCast(Object)");
 					else if(paramType == short.class)
-						m = Method.getMethod("short uncheckedShortCast(Object)");					
+						m = Method.getMethod("short uncheckedShortCast(Object)");
 					}
 				else
 					{
@@ -987,8 +989,12 @@ static public abstract class HostExpr implements Expr, MaybePrimitiveExpr{
 				Symbol sym = (Symbol) RT.third(form);
 				if(c != null)
 					maybeField = Reflector.getMethods(c, 0, munge(sym.name), true).size() == 0;
-				else if(instance != null && instance.hasJavaClass() && instance.getJavaClass() != null)
-					maybeField = Reflector.getMethods(instance.getJavaClass(), 0, munge(sym.name), false).size() == 0;
+				else if(instance != null && instance.hasJavaClass())
+					{
+					Class ic = instance.getJavaClass();
+					if (ic != null)
+						maybeField = Reflector.getMethods(ic, 0, munge(sym.name), false, allowProtectedAccess(ic)).size() == 0;
+					}
 				}
 
 			if(maybeField)    //field
@@ -1401,7 +1407,7 @@ static class InstanceFieldExpr extends FieldExpr implements AssignableExpr{
 	public InstanceFieldExpr(int line, int column, Expr target, String fieldName, Symbol tag, boolean requireField) {
 		this.target = target;
 		this.targetClass = target.hasJavaClass() ? target.getJavaClass() : null;
-		this.field = targetClass != null ? Reflector.getField(targetClass, fieldName, false) : null;
+		this.field = targetClass != null ? Reflector.getField(targetClass, fieldName, false, allowProtectedAccess(this.targetClass)) : null;
 		this.fieldName = fieldName;
 		this.line = line;
 		this.column = column;
@@ -1912,7 +1918,8 @@ static class InstanceMethodExpr extends MethodExpr{
 				(target.hasJavaClass() ? target.getJavaClass() : null);
 		if(contextClass != null)
 			{
-			List methods = Reflector.getMethods(contextClass, args.count(), methodName, false);
+			boolean allowProtected = allowProtectedAccess(contextClass);
+			List methods = Reflector.getMethods(contextClass, args.count(), methodName, false, allowProtected);
 			if(methods.isEmpty())
 				{
 				method = null;
@@ -1943,7 +1950,7 @@ static class InstanceMethodExpr extends MethodExpr{
 				if(m != null && !Modifier.isPublic(m.getDeclaringClass().getModifiers()))
 					{
 					//public method of non-public class, try to find it in hierarchy
-					m = Reflector.getAsMethodOfPublicBase(m.getDeclaringClass(), m);
+					m = Reflector.getAsMethodOfPublicBase(contextClass, m, allowProtected);
 					}
 				method = m;
 				if(method == null && RT.booleanCast(RT.WARN_ON_REFLECTION.deref()))
@@ -2972,8 +2979,27 @@ static String getTypeStringForArgs(IPersistentVector args){
 	return sb.toString();
 }
 
-static Constructor getConstructor(Class c, IPersistentVector args) {
+static boolean allowProtectedAccess(Class c) {
+    IPersistentVector v = (IPersistentVector)ALLOW_PROTECTED_ACCESS.deref();
+    if (v == null)
+        return false;
+    Class sc = (Class) v.nth(0);
+    return METHOD.deref() == v.nth(1) && c.isAssignableFrom(sc);
+}
+
+static Constructor getConstructor(Class c, IPersistentVector args, boolean allowProtected) {
     Constructor[] allctors = c.getConstructors();
+    if (allowProtected) {
+        ArrayList<Constructor> constructors = new ArrayList<Constructor>();
+        for(Class c1 = c; c1!= null; c1 = c1.getSuperclass()) {
+            for (Constructor ct : c1.getDeclaredConstructors()) {
+                int mod = ct.getModifiers();
+                if (Modifier.isPublic(mod) || Modifier.isProtected(mod))
+                    constructors.add(ct);
+            }
+        }
+        allctors = constructors.toArray(allctors);
+    }
     ArrayList ctors = new ArrayList();
     ArrayList<Class[]> params = new ArrayList();
     ArrayList<Class> rets = new ArrayList();
@@ -3074,7 +3100,7 @@ public static class NewExpr implements Expr{
 	public NewExpr(Class c, IPersistentVector args, int line, int column) {
 		this.args = args;
 		this.c = c;
-		this.ctor = getConstructor(c, args);
+		this.ctor = getConstructor(c, args, false);
 		if(ctor == null && RT.booleanCast(RT.WARN_ON_REFLECTION.deref()))
 			{
 			RT.errPrintWriter()
@@ -3262,7 +3288,7 @@ public static class IfExpr implements Expr, MaybePrimitiveExpr{
 		       &&
 		       (thenExpr.getJavaClass() == elseExpr.getJavaClass()
 		        || thenExpr.getJavaClass() == RECUR_CLASS
-				|| elseExpr.getJavaClass() == RECUR_CLASS		        
+				|| elseExpr.getJavaClass() == RECUR_CLASS
 		        || (thenExpr.getJavaClass() == null && !elseExpr.getJavaClass().isPrimitive())
 		        || (elseExpr.getJavaClass() == null && !thenExpr.getJavaClass().isPrimitive()));
 	}
@@ -4158,7 +4184,7 @@ static class InvokeExpr implements Expr{
 					}
 				}
 			}
-		
+
 		if (tag != null) {
 		    this.tag = tag;
 		} else if (fexpr instanceof VarExpr) {
@@ -4204,7 +4230,7 @@ static class InvokeExpr implements Expr{
 			emitArgsAndCall(0, context,objx,gen);
 			}
 		if(context == C.STATEMENT)
-			gen.pop();		
+			gen.pop();
 	}
 
 	public void emitProto(C context, ObjExpr objx, GeneratorAdapter gen){
@@ -4222,7 +4248,7 @@ static class InvokeExpr implements Expr{
 		gen.visitJumpInsn(IF_ACMPEQ, callLabel); //target
 		if(protocolOn != null)
 			{
-			gen.dup(); //target, target			
+			gen.dup(); //target, target
 			gen.instanceOf(Type.getType(protocolOn));
 			gen.ifZCmp(GeneratorAdapter.NE, onLabel);
 			}
@@ -4800,7 +4826,7 @@ static public class ObjExpr implements Expr{
 		int i = name.lastIndexOf("__");
 		return i==-1?name:name.substring(0,i);
 	}
-	
+
 
 
 	Type[] ctorTypes(){
@@ -4929,7 +4955,7 @@ static public class ObjExpr implements Expr{
 		if(!isDefclass)
 			ctorgen.invokeConstructor(Type.getObjectType(superName), voidctor);
 		else {
-			Constructor ctor = getConstructor(RT.classForName(superName.replace('/', '.')), ctor_args);
+			Constructor ctor = getConstructor(RT.classForName(superName.replace('/', '.')), ctor_args, true);
 
 			MethodExpr.emitTypedArgs(isDeftype() ? new ObjExpr(tag) : this, ctorgen, ctor.getParameterTypes(), ctor_args);
 
@@ -5667,7 +5693,7 @@ static public class ObjExpr implements Expr{
                         {
 //                        System.out.println("use: " + rep);
                         }
-                    }     
+                    }
 				}
 			else
 				{
@@ -5820,7 +5846,7 @@ static class PathNode{
 static PathNode clearPathRoot(){
     return (PathNode) CLEAR_ROOT.get();
 }
-    
+
 enum PSTATE{
 	REQ, REST, DONE
 }
@@ -5959,7 +5985,7 @@ public static class FnMethod extends ObjMethod{
 						throw Util.runtimeException("& arg cannot have type hint");
 					if(state == PSTATE.REST && method.prim != null)
 						throw Util.runtimeException("fns taking primitives cannot be variadic");
-					                        
+
 					if(state == PSTATE.REST)
 						pc = ISeq.class;
 					argtypes.add(Type.getType(pc));
@@ -6443,7 +6469,7 @@ abstract public static class ObjMethod{
 
     void emitClearLocals(GeneratorAdapter gen){
     }
-    
+
 	void emitClearLocalsOld(GeneratorAdapter gen){
 		for(int i=0;i<argLocals.count();i++)
 			{
@@ -6970,7 +6996,7 @@ public static class LetExpr implements Expr, MaybePrimitiveExpr{
                                        CLEAR_ROOT, clearroot,
                                        NO_RECUR, null,
                                        METHOD_RETURN_CONTEXT, methodReturnContext));
-                                                       
+
 							}
 						bodyExpr = (new BodyExpr.Parser()).parse(isLoop ? C.RETURN : context, body);
 						}
@@ -7355,7 +7381,7 @@ private static Expr analyze(C context, Object form, String name) {
 
 static public class CompilerException extends RuntimeException implements IExceptionInfo{
 	final public String source;
-	
+
 	final public int line;
 
 	final public Object data;
@@ -7593,8 +7619,8 @@ public static Object macroexpand1(Object x) {
 //						Symbol meth = Symbol.intern(sname.substring(idx + 1));
 //						return RT.listStar(DOT, target, meth, form.rest());
 //						}
-					//(StringBuilder. "foo") => (new StringBuilder "foo")	
-					//else 
+					//(StringBuilder. "foo") => (new StringBuilder "foo")
+					//else
 					if(idx == sname.length() - 1)
 						return RT.listStar(NEW, Symbol.intern(sname.substring(0, idx)), form.next());
 					}
@@ -7971,7 +7997,7 @@ static public Object maybeResolveIn(Namespace n, Symbol sym) {
 			return null;
 		return v;
 		}
-	else if(sym.name.indexOf('.') > 0 && !sym.name.endsWith(".") 
+	else if(sym.name.indexOf('.') > 0 && !sym.name.endsWith(".")
 			|| sym.name.charAt(0) == '[')
 		{
 		try {
@@ -8575,7 +8601,7 @@ static public class NewInstanceExpr extends ObjExpr{
 		Map covariants = mc[1];
 		ret.mmap = overrideables;
 		ret.covariants = covariants;
-		
+
 		String[] inames = interfaceNames(interfaces);
 
 		Class stub = compileStub(slashname(superClass),ret, inames, frm);
@@ -8608,7 +8634,7 @@ static public class NewInstanceExpr extends ObjExpr{
 			IPersistentCollection methods = null;
 			for(ISeq s = methodForms; s != null; s = RT.next(s))
 				{
-				NewInstanceMethod m = NewInstanceMethod.parse(ret, (ISeq) RT.first(s),thistag, overrideables);
+				NewInstanceMethod m = NewInstanceMethod.parse(ret, (ISeq) RT.first(s),thistag, overrideables, stub);
 				methods = RT.conj(methods, m);
 				}
 
@@ -9003,7 +9029,7 @@ public static class NewInstanceMethod extends ObjMethod{
 	}
 
 	static NewInstanceMethod parse(ObjExpr objx, ISeq form, Symbol thistag,
-	                               Map overrideables) {
+	                               Map overrideables, Class c) {
 		//(methodname [this-name args*] body...)
 		//this-name might be nil
 		NewInstanceMethod method = new NewInstanceMethod(objx, (ObjMethod) METHOD.deref());
@@ -9034,6 +9060,8 @@ public static class NewInstanceMethod extends ObjMethod{
                             ,CLEAR_SITES, PersistentHashMap.EMPTY
                             ,METHOD_RETURN_CONTEXT, RT.T
                     ));
+            if(objx.isDefclass)
+				Var.pushThreadBindings(RT.mapUniqueKeys(ALLOW_PROTECTED_ACCESS, RT.vector(c, method)));
 
 			//register 'this' as local 0
 			if(thisName != null)
@@ -9133,6 +9161,8 @@ public static class NewInstanceMethod extends ObjMethod{
 			}
 		finally
 			{
+			if(objx.isDefclass)
+				Var.popThreadBindings();
 			Var.popThreadBindings();
 			}
 	}
@@ -9629,7 +9659,7 @@ public static class CaseExpr implements Expr, MaybePrimitiveExpr{
                     }
 				thens.put(minhash, thenExpr);
 				}
-            
+
             Expr defaultExpr;
             try {
                 Var.pushThreadBindings(
