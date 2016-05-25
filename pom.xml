@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>org.clojure</groupId>
+  <groupId>com.cursive-ide</groupId>
   <artifactId>clojure</artifactId>
   <name>clojure</name>
   <packaging>jar</packaging>
@@ -81,11 +81,10 @@
   </dependencies>
 
   <distributionManagement>
-    <snapshotRepository>
-      <!-- This id is linked to the key setup on the CI server -->
-      <id>sonatype-nexus-staging</id>
-      <url>https://oss.sonatype.org/content/repositories/snapshots</url>
-    </snapshotRepository>
+    <repository>
+      <id>repo.cursive-ide.com</id>
+      <url>s3://repo.cursive-ide.com/release</url>
+    </repository>
   </distributionManagement>
 
   <build>
@@ -223,21 +222,14 @@
 	</configuration>
       </plugin>
 
-      <!-- deploy artifacts to sonatype -->
-      <plugin>
-        <groupId>org.sonatype.plugins</groupId>
-        <artifactId>nexus-staging-maven-plugin</artifactId>
-        <version>1.6.13</version>
-        <extensions>true</extensions>
-        <configuration>
-          <!-- The server "id" element from settings to use authentication from -->
-          <serverId>sonatype-nexus-staging</serverId>
-          <nexusUrl>https://oss.sonatype.org/</nexusUrl>
-          <autoReleaseAfterClose>true</autoReleaseAfterClose>
-        </configuration>
-      </plugin>
-
     </plugins>
+    <extensions>
+      <extension>
+        <groupId>org.kuali.maven.wagons</groupId>
+        <artifactId>maven-s3-wagon</artifactId>
+        <version>1.2.1</version>
+      </extension>
+    </extensions>
   </build>
 
   <profiles>
