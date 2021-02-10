@@ -269,7 +269,7 @@ public static List<String> processCommandLine(String[] args){
 	return arglist;
 }
 
-// duck typing stderr plays nice with e.g. swank 
+// duck typing stderr plays nice with e.g. swank
 public static PrintWriter errPrintWriter(){
     Writer w = (Writer) ERR.deref();
     if (w instanceof PrintWriter) {
@@ -1365,7 +1365,7 @@ static public float floatCast(long x){
 static public float floatCast(double x){
 	if(x < -Float.MAX_VALUE || x > Float.MAX_VALUE)
 		throw new IllegalArgumentException("Value out of range for float: " + x);
-	
+
 	return (float) x;
 }
 
@@ -2194,6 +2194,8 @@ static public ClassLoader makeClassLoader(){
 }
 
 static public ClassLoader baseLoader(){
+  ClassLoader loader = ClojureLoaderHolder.loader.get();
+  if (loader != null) return loader;
 	if(Compiler.LOADER.isBound())
 		return (ClassLoader) Compiler.LOADER.deref();
 	else if(booleanCast(USE_CONTEXT_CLASSLOADER.deref()))
