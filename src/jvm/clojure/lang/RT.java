@@ -18,6 +18,7 @@ import java.net.URI;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.Callable;
 import java.util.*;
+import java.util.jar.JarFile;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.io.*;
@@ -31,6 +32,7 @@ import java.net.URL;
 import java.net.JarURLConnection;
 import java.nio.charset.Charset;
 import java.net.URLConnection;
+import java.util.zip.ZipFile;
 
 public class RT{
 
@@ -412,8 +414,16 @@ public static void loadResourceScript(Class c, String name, boolean failIfNotFou
 static public long lastModified(URL url, String libfile) throws IOException{
 	URLConnection connection = url.openConnection();
 	try {
-		if (url.getProtocol().equals("jar"))
+		if (connection instanceof JarURLConnection)
 			return ((JarURLConnection) connection).getJarFile().getEntry(libfile).getTime();
+		else if (url.getProtocol().equals("jar")) {
+      String jarPath = splitJarUrl(url.getFile());
+      if (jarPath == null) return connection.getLastModified();
+      File jarIoFile = new File(jarPath);
+      if (!jarIoFile.exists()) return connection.getLastModified();
+      JarFile jarFile = new JarFile(jarIoFile, true, ZipFile.OPEN_READ);
+      return jarFile.getEntry(libfile).getTime();
+    }
 		else
 			return connection.getLastModified();
 	}
@@ -423,6 +433,53 @@ static public long lastModified(URL url, String libfile) throws IOException{
 			ins.close();
 	}
 }
+
+  private static String splitJarUrl(String url) {
+    int pivot = url.indexOf("!/");
+    if (pivot < 0) {
+      return null;
+    }
+
+    String jarPath = url.substring(0, pivot);
+
+    boolean startsWithConcatenation = true;
+    int offset = 0;
+    for (String prefix : new String[]{"jar", ":"}) {
+      int prefixLen = prefix.length();
+      if (!jarPath.regionMatches(offset, prefix, 0, prefixLen)) {
+        startsWithConcatenation = false;
+        break;
+      }
+      offset += prefixLen;
+    }
+    if (startsWithConcatenation) {
+      jarPath = jarPath.substring("jar".length() + 1);
+    }
+
+    if (!jarPath.startsWith("file")) {
+      return jarPath;
+    }
+
+    try {
+      File result;
+      URL parsedUrl = new URL(jarPath);
+      try {
+        result = new File(parsedUrl.toURI().getSchemeSpecificPart());
+      } catch (URISyntaxException e) {
+        throw new IllegalArgumentException("URL='" + parsedUrl + "'", e);
+      }
+      return result.getPath().replace('\\', '/');
+    } catch (Exception e) {
+      jarPath = jarPath.substring("file".length());
+      if (jarPath.startsWith("://")) {
+        return jarPath.substring("://".length());
+      } else if (!jarPath.isEmpty() && jarPath.charAt(0) == ':') {
+        return jarPath.substring(1);
+      } else {
+        return jarPath;
+      }
+    }
+  }
 
 static void compile(String cljfile) throws IOException{
         InputStream ins = resourceAsStream(baseLoader(), cljfile);
