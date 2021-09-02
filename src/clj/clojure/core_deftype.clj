@@ -46,8 +46,9 @@
 (defn- parse-impls [specs]
   (loop [ret {} s specs]
     (if (seq s)
-      (recur (assoc ret (first s) (take-while seq? (next s)))
-             (drop-while seq? (next s)))
+      (let [interface (first s)]
+        (recur (assoc ret interface (concat (get ret interface) (take-while seq? (next s))))
+               (drop-while seq? (next s))))
       ret)))
 
 (defn- parse-opts+specs [opts+specs]
