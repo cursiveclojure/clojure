@@ -658,6 +658,11 @@
        javax.swing.JPanel []
        (paintComponent [this g]
                        (.paintComponent ^javax.swing.JPanel this ^java.awt.Graphics g))))
+  (is (not (instance? clojure.lang.IObj
+                      (clojure.interop/extend-class
+                        javax.swing.JPanel []
+                        (paintComponent [this g]
+                          (.paintComponent ^javax.swing.JPanel this ^java.awt.Graphics g))))))
   (should-not-reflect
    (fn [^java.awt.Graphics g]
                         (clojure.interop/extend-class

@@ -8573,7 +8573,7 @@ static public class NewInstanceExpr extends ObjExpr{
 
 		ISeq rform = RT.next(form);
 
-		IPersistentVector interfaces = ((IPersistentVector) RT.first(rform)).cons(Symbol.intern("clojure.lang.IObj"));
+		IPersistentVector interfaces = (IPersistentVector) RT.first(rform);
 
 
 		rform = RT.next(rform);
@@ -8584,6 +8584,12 @@ static public class NewInstanceExpr extends ObjExpr{
 			rform = rform.next().next();
 			}
 
+		// Check to see if extend-type :super-class is present. This will be further validated
+    // in build(), we just use this here to see if the class should implement IObj.
+    Class superClass = HostExpr.maybeClass(RT.get(opts, SUPER_CLASS, Object.class), true);
+		// If the superclass is object, this is a reify form. If not, it's an extend-class.
+		if (superClass == Object.class)
+      interfaces = interfaces.cons(Symbol.intern("clojure.lang.IObj"));
 
 		ObjExpr ret = build(interfaces, null, null, classname, Symbol.intern(classname), null, rform, frm, opts);
 		if(frm instanceof IObj && ((IObj) frm).meta() != null)
